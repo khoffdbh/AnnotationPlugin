@@ -109,6 +109,7 @@ export default function Review() {
     const files = view?.files ?? [];
     useEffect(() => {
         if (view?.kind !== "diff") return;
+        if (selectedFile === UNCHANGED) return;
         if (!selectedFile || !files.some(file => file.path === selectedFile)) setSelectedFile(files[0]?.path ?? null);
     }, [view, files, selectedFile]);
 
@@ -180,27 +181,52 @@ export default function Review() {
 const sideOf = line => line.k === "-" ? "old" : "new";
 const numberOf = (line, side) => side === "old" ? line.o : line.n;
 
+// The entry of the file list for comments on files that have no changes any more (committed or reverted since).
+const UNCHANGED = "\u0000unchanged";
+
 function DiffReview({ view, notes, mutations, selectedFile, onSelect }) {
     const files = view.files;
+    const unchanged = notes.filter(note => !files.some(file => file.path === note.file));
+    const unchangedView = unchanged.length > 0 && html`
+        <div className="ann-section">
+            <div className="ann-hint" style=${{ marginBottom: 4 }}>Comments on files that no longer have uncommitted changes. They are still sent until resolved.</div>
+            ${unchanged.map(note => html`<div key=${note.id} style=${{ marginBottom: 6 }}>
+                <div className="ann-hint"><${FileLink} path=${note.file} line=${note.startLine}>${note.file}<//></div>
+                <${NoteCard} note=${note} mutations=${mutations} />
+            </div>`)}
+        </div>`;
     if (files.length === 0) {
-        return html`<${NonIdealState} icon="tick-circle" title="No uncommitted changes" description="The working tree matches HEAD." />`;
+        return html`<div className="ann-main">
+            <${NonIdealState} icon="tick-circle" title="No uncommitted changes" description="The working tree matches HEAD." />
+            ${unchangedView}
+        </div>`;
     }
 
     const file = files.find(candidate => candidate.path === selectedFile) ?? files[0];
+    const showUnchanged = selectedFile === UNCHANGED && unchanged.length > 0;
+    const unresolvedUnchanged = unchanged.filter(note => note.status !== "resolved").length;
     const countFor = path => notes.filter(note => note.file === path && note.status !== "resolved").length;
     return html`
         <div className="ann-body">
             <div className="ann-files" role="listbox" aria-label="Changed files">
                 ${files.map(item => html`
-                    <div key=${item.path} role="option" aria-selected=${item.path === file.path} title=${item.path}
-                        className=${"ann-file" + (item.path === file.path ? " selected" : "")} onClick=${() => onSelect(item.path)}>
+                    <div key=${item.path} role="option" aria-selected=${!showUnchanged && item.path === file.path} title=${item.path}
+                        className=${"ann-file" + (!showUnchanged && item.path === file.path ? " selected" : "")} onClick=${() => onSelect(item.path)}>
                         <${Tag} minimal intent=${statusIntent(item.status)}>${statusLetter(item.status)}<//>
                         <span className="ann-file-name">${item.path.split("/").pop()} <span className="ann-hint">${item.path.includes("/") ? item.path.slice(0, item.path.lastIndexOf("/")) : ""}</span></span>
                         ${countFor(item.path) > 0 && html`<${Tag} round intent="primary">${countFor(item.path)}<//>`}
                     </div>`)}
+                ${unchanged.length > 0 && html`
+                    <div role="option" aria-selected=${showUnchanged} className=${"ann-file" + (showUnchanged ? " selected" : "")} onClick=${() => onSelect(UNCHANGED)}>
+                        <${Tag} minimal>·<//>
+                        <span className="ann-file-name">No longer changed</span>
+                        ${unresolvedUnchanged > 0 && html`<${Tag} round intent="primary">${unresolvedUnchanged}<//>`}
+                    </div>`}
             </div>
             <div className="ann-main">
-                <${DiffFileView} key=${file.path} file=${file} notes=${notes.filter(note => note.file === file.path)} mutations=${mutations} />
+                ${showUnchanged
+                    ? unchangedView
+                    : html`<${DiffFileView} key=${file.path} file=${file} notes=${notes.filter(note => note.file === file.path)} mutations=${mutations} />`}
             </div>
         </div>`;
 }

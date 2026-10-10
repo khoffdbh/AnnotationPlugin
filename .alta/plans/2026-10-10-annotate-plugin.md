@@ -73,7 +73,7 @@ This step must come after the migration.
 - [x] **5. Send to agent.** Add the prompt composer, the target menu (this session / other sessions / new session) and the queue-if-busy send. Mark comments as `sent`, and add a toolbar badge with the open count and the status item. Add the canvas action `send`. **Done when:** the target session receives the prompt above, and a second send includes only unresolved comments.
 - [x] **6. Agent tools.** Add `annotation_list` and `annotation_reply`, and show replies in threads (live through `review.changed`). **Done when:** an agent run started by **Send** replies to each id and the replies appear in the open tab.
 - [x] **7. Plan annotation.** Add the plan picker (`/annotate-plan` and a selector in the canvas toolbar), the Markdown block splitter with line ranges, the block gutter, and `Kind = plan` comments that reuse steps 3–6. **Done when:** comments on a plan file are sent to its session, and the plan agent revises the file.
-- [ ] **8. Entry points and docs.** Add `/annotate`, the SessionMenu button, the status item and `annotate/README.md` (install, usage, keys). Run one full manual pass in the window: edit → annotate → send → agent replies → resolve.
+- [x] **8. Entry points and docs.** Add `/annotate`, the SessionMenu button, the status item and `annotate/README.md` (install, usage, keys). Run one full manual pass in the window: edit → annotate → send → agent replies → resolve.
 
 ## Deviations found while implementing
 
@@ -82,6 +82,7 @@ This step must come after the migration.
 - **Outdated is a flag, not a status.** `Outdated` sits beside `Status`, so a comment keeps `open`/`sent` while its lines are gone and re-attaches when the text comes back.
 - **Send runs in the background.** `alta session send` returns only after the run it starts ends (a 26 s run took ~55 s), past the 30 s limit of a script call. The comments are marked `sent` at once, the prompt goes out through `Tasks.Run`, and a failed send restores their previous state and shows a notification.
 - **Plan picker.** The toolbar selector opens the chosen review (`review.open`) in its own tab, since the canvas key decides which review a tab shows. **New session** from a plan review starts the session with `--prompt-id plan`.
+- **Comments on files without changes.** After a commit or a revert, a file leaves the diff while its comments stay unresolved. The file list gets a **No longer changed** entry that lists them, so they can still be read and resolved.
 - **Step 3 restart check.** Persistence was verified across `alta plugin reload` (in-memory state cleared, comments re-read from the file). A full CodeAlta restart cannot be run from inside the session; it reads the same file.
 
 ## Verification

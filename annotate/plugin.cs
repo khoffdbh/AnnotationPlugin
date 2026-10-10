@@ -630,6 +630,7 @@ public sealed class NoteStore(string root, string file, StoreFile data)
 {
     private static readonly JsonSerializerOptions FileJson = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private readonly Lock _gate = new();
+    private readonly HashSet<string> _sessions = new(StringComparer.Ordinal);
 
     public string Root { get; } = root;
 
@@ -643,10 +644,14 @@ public sealed class NoteStore(string root, string file, StoreFile data)
         lock (_gate) return [.. data.Notes.Where(note => note.SessionId == (sessionId ?? "") && note.Review == review).Select(note => note.Copy())];
     }
 
+    // Every session that had comments here, with its count of unresolved ones: 0 for a session whose last comment was deleted.
     public Dictionary<string, int> UnresolvedBySession()
     {
         lock (_gate)
-            return data.Notes.GroupBy(note => note.SessionId).ToDictionary(group => group.Key, group => group.Count(note => note.Status != "resolved"));
+        {
+            foreach (var note in data.Notes) _sessions.Add(note.SessionId);
+            return _sessions.ToDictionary(session => session, session => data.Notes.Count(note => note.SessionId == session && note.Status != "resolved"));
+        }
     }
 
     public Note Add(Note note)
@@ -677,6 +682,7 @@ public sealed class NoteStore(string root, string file, StoreFile data)
     {
         lock (_gate)
         {
+            foreach (var note in data.Notes) _sessions.Add(note.SessionId);
             if (data.Notes.RemoveAll(note => note.Id == id) == 0) return false;
             Save();
             return true;

@@ -502,10 +502,10 @@ function NoteCard({ note, mutations }) {
     if (resolved && !expanded) {
         return html`
             <div className="ann-note" style=${{ display: "flex", gap: 6, alignItems: "center", opacity: .7 }} data-note=${note.id}>
-                <${Icon} name="check" />
-                <${Tag} minimal>${note.id}<//>
-                <span className="ann-hint">${lines} · resolved · ${firstLine(note.body)}</span>
-                <${Button} size="small" variant="minimal" onClick=${() => setExpanded(true)}>Show<//>
+                <${Icon} name="check" style=${{ flex: "none" }} />
+                <${Tag} minimal style=${{ flex: "none" }}>${note.id}<//>
+                <span className="ann-hint" style=${{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>${lines} · resolved · ${firstLine(note.body)}</span>
+                <${Button} size="small" variant="minimal" style=${{ flex: "none" }} onClick=${() => setExpanded(true)}>Show<//>
             </div>`;
     }
 

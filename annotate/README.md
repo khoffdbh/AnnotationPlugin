@@ -7,9 +7,11 @@ Review what an agent changed, line by line, and send your comments back to it as
 
 CodeAlta Desktop only: the review is a canvas tab.
 
+![The review of the uncommitted changes: a diff with two comments under their lines, and a third comment being written under line 23](docs/review-diff.png)
+
 ## Install
 
-The plugin is a global plugin, so it works in every project. Its folder is `~/.alta/plugins/annotate/` (`plugin.cs` and `ui/review.js`). To develop it from this repository, link the folder:
+The plugin is a global plugin, so it works in every project. Its folder is `~/.alta/plugins/annotate/` (`plugin.cs`, `review-content.cs` and `ui/review.js`). To develop it from this repository, link the folder:
 
 ```powershell
 New-Item -ItemType Junction -Path "$HOME\.alta\plugins\annotate" -Target "<repo>\annotate"
@@ -28,6 +30,10 @@ Then run `alta plugin reload annotate`, or restart CodeAlta.
 | The selector at the top left of a review | Switches between the changes and the plans of the project, each in its own tab. |
 
 No shortcut is bound by default.
+
+A plan review shows the plan as Markdown, one block per row with its line numbers. A comment covers whole blocks:
+
+![The review of a plan: headings and list items with their line numbers, and a comment under lines 15 to 16](docs/plan-review.png)
 
 ## Comment
 
@@ -54,6 +60,8 @@ The review reads the files again when its tab is shown, when a session ends a tu
 - **Another session** of the project.
 - **New session:** a new session of the project, in Plan mode for a plan review.
 
+![The Send to agent menu: this session, the other sessions of the project, and New session](docs/send-menu.png)
+
 The prompt is queued when the session is busy. The comments become `sent` and stay visible. A comment you do not resolve is sent again next time, marked as sent before, with the agent's earlier replies.
 
 ## What the agent can do
@@ -64,6 +72,8 @@ The plugin gives every session two tools:
 - `annotation_reply` answers a comment by its id (`a1`) and marks it addressed. The reply shows under the comment in the open review.
 
 Only you resolve a comment.
+
+![After the agent's turn: comment a1 is outdated because the agent rewrote its lines, and shows the agent's reply; a2 is resolved and folded into one line](docs/agent-reply.png)
 
 Agents can also drive a review without the window: `alta canvas show review --key diff` describes it, and `alta canvas invoke review add|list|send|resolve --key <key> --stdin` runs an action. The key is `diff`, or `plan:<path of the plan>`.
 

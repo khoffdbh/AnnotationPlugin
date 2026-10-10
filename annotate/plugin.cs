@@ -20,6 +20,7 @@ public sealed class AnnotatePlugin : PluginBase
 
     private static readonly JsonSerializerOptions RpcJson = new(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
     private static readonly JsonSerializerOptions FileJson = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions ToolJson = new(RpcJson) { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     private readonly ConcurrentDictionary<string, string> _projectPaths = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, PluginCanvasContext> _open = new(StringComparer.Ordinal);
@@ -298,12 +299,30 @@ public sealed class AnnotatePlugin : PluginBase
             sessionId = target is null or "" or "session" ? canvas.SessionId ?? throw new PluginRpcException("no_session", "The review has no session.") : target;
         }
 
-        var send = await Services.Alta.InvokeAsync(["session", "send", sessionId, "--stdin", "--queue-if-busy"], prompt, cancellationToken: cancellationToken);
-        if (send.ExitCode != 0) throw new PluginRpcException("send_failed", send.Error ?? Field(send.TranscriptJsonl, "message") ?? $"alta session send ended with {send.ExitCode}.");
-
+        // `alta session send` answers when the run it starts is over, which outlasts a call of the script (30 s). The comments are
+        // marked sent at once and the prompt goes out as background work of the plugin; a send that fails puts them back as they were.
         var store = await StoreAsync(view.ProjectPath, cancellationToken);
-        store.MarkSent(pending.Select(note => note.Id), sessionId);
+        var before = store.MarkSent(pending.Select(note => note.Id), sessionId);
         await ChangedAsync(store, refresh: false);
+        Tasks.Run("annotate-send", async token =>
+        {
+            string? failure;
+            try
+            {
+                var send = await Services.Alta.InvokeAsync(["session", "send", sessionId, "--stdin", "--queue-if-busy"], prompt, cancellationToken: token);
+                failure = send.ExitCode == 0 ? null : send.Error ?? Field(send.TranscriptJsonl, "message") ?? $"alta session send ended with {send.ExitCode}.";
+            }
+            catch (Exception error) when (error is not OperationCanceledException)
+            {
+                failure = error.Message;
+            }
+
+            if (failure is null) return;
+            Logger.Warn($"annotate: the review notes were not sent to {sessionId}: {failure}");
+            store.Restore(before);
+            await ChangedAsync(store, refresh: false);
+            await Services.Ui.NotifyAsync($"The review notes were not sent: {failure}", token);
+        });
         return new SendResult(pending.Count, sessionId, created, prompt);
     }
 
@@ -341,7 +360,7 @@ public sealed class AnnotatePlugin : PluginBase
                     note.Id, note.Kind, note.File, note.Side, lines = Lines(note), note.Status, note.Outdated, note.Addressed, note.Body,
                     replies = note.Replies.Select(reply => new { reply.Author, reply.Body }),
                 });
-                return new AgentToolResult(true, [new AgentToolResultItem.Text(JsonSerializer.Serialize(new { project = root, comments = notes }, RpcJson))]);
+                return new AgentToolResult(true, [new AgentToolResultItem.Text(JsonSerializer.Serialize(new { project = root, comments = notes }, ToolJson))]);
             }));
 
         var replySchema = JsonDocument.Parse("""
@@ -664,16 +683,35 @@ public sealed class NoteStore(string root, string file, StoreFile data)
         }
     }
 
-    public void MarkSent(IEnumerable<string> ids, string sessionId)
+    // Marks comments sent and returns them as they were, for Restore when the send fails.
+    public IReadOnlyList<Note> MarkSent(IEnumerable<string> ids, string sessionId)
     {
         var wanted = ids.ToHashSet(StringComparer.Ordinal);
         lock (_gate)
         {
+            var before = new List<Note>();
             foreach (var note in data.Notes.Where(note => wanted.Contains(note.Id)))
             {
+                before.Add(note.Copy());
                 if (note.Status == "open") note.Status = "sent";
                 note.SentAt = DateTimeOffset.UtcNow;
                 note.SentTo = sessionId;
+            }
+
+            Save();
+            return before;
+        }
+    }
+
+    public void Restore(IReadOnlyList<Note> before)
+    {
+        lock (_gate)
+        {
+            foreach (var old in before)
+            {
+                var note = data.Notes.Find(candidate => candidate.Id == old.Id);
+                if (note is null) continue;
+                (note.Status, note.SentAt, note.SentTo) = (note.Status == "sent" ? old.Status : note.Status, old.SentAt, old.SentTo);
             }
 
             Save();

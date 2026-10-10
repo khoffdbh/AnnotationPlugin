@@ -37,7 +37,11 @@ const css = `
 .ann-note-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
 .ann-note-actions { margin-left: auto; display: flex; gap: 2px; }
 .ann-reply { border-left: 3px solid rgba(45,114,210,.5); padding: 2px 8px; margin-top: 6px; }
+.ann-table.ann-plan { font-family: inherit; font-size: 13px; }
+.ann-plan .ann-num { font-family: var(--bp-typography-family-mono, ui-monospace, SFMono-Regular, Consolas, monospace); font-size: 12px; padding-top: 4px; }
+.ann-plan .ann-gutter { padding-top: 2px !important; }
 .ann-block td { padding: 2px 6px; }
+.ann-block .ann-md h1, .ann-block .ann-md h2, .ann-block .ann-md h3, .ann-block .ann-md h4 { margin: 6px 0 2px; }
 .ann-block .ann-md > :last-child { margin-bottom: 0; }
 .ann-section { margin: 8px 0; }
 .ann-hint { opacity: .6; font-size: 12px; }
@@ -332,11 +336,12 @@ function PlanReview({ view, notes, mutations }) {
                 placed=${placement.placed}
                 mutations=${mutations}
                 columns=${3}
+                className="ann-plan"
                 renderRow=${(row, props, plus) => html`
                     <tr ...${props} className=${props.className + " ann-block" + (noted.has(row.index) ? " ann-noted" : "")}>
                         <td className="ann-num">${row.block.start === row.block.end ? row.block.start : `${row.block.start}–${row.block.end}`}</td>
                         <td className="ann-gutter">${plus}</td>
-                        <td className="ann-md" style=${{ fontFamily: "var(--bp-typography-family-sans, inherit)", fontSize: 13 }}>
+                        <td className="ann-md">
                             ${row.block.kind === "frontmatter"
                                 ? html`<pre style=${{ margin: 0, opacity: .7 }}>${row.block.text}</pre>`
                                 : html`<${Markdown} source=${row.block.text} />`}
@@ -350,7 +355,7 @@ function PlanReview({ view, notes, mutations }) {
 
 // A table of commentable rows: the + of a row starts a comment, a drag or a Shift-click makes it a range (inside one group), `c` on a
 // focused row starts one, the arrows move between rows. Threads and the editor are drawn under the last line of their range.
-function LineTable({ rows, file, rangeOf, placed, mutations, renderRow, columns }) {
+function LineTable({ rows, file, rangeOf, placed, mutations, renderRow, columns, className }) {
     const [drag, setDrag] = useState(null);
     const [editor, setEditor] = useState(null);
     const [focused, setFocused] = useState(null);
@@ -386,6 +391,7 @@ function LineTable({ rows, file, rangeOf, placed, mutations, renderRow, columns 
         tabIndex: 0,
         className: "ann-row" + (focused === row.index ? " focused" : "") + (selection && row.index >= selection[0] && row.index <= selection[1] ? " ann-selected" : ""),
         onFocus: () => { setFocused(row.index); anchor.current = row.index; },
+        onMouseDown: () => { anchor.current = row.index; },
         onBlur: () => setFocused(current => current === row.index ? null : current),
         onMouseEnter: () => {
             if (!dragging.current || rows[dragging.current.from].group !== row.group) return;
@@ -411,7 +417,7 @@ function LineTable({ rows, file, rangeOf, placed, mutations, renderRow, columns 
             onClick=${event => { if (event.detail === 0) open(row.index, row.index); /* Enter or Space on the button */ }}>+</button>`;
 
     return html`
-        <table className="ann-table" ref=${tableRef}>
+        <table className=${"ann-table" + (className ? " " + className : "")} ref=${tableRef}>
             <tbody>
                 ${rows.map(row => html`
                     ${renderRow(row, propsFor(row), plusFor(row))}

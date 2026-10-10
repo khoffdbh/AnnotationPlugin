@@ -1,6 +1,6 @@
 # Annotate
 
-Review what an agent changed, line by line, and send your comments back to it as one prompt. It works like [Orca's Annotate AI Diff](https://www.onorca.dev/docs/review/annotate-ai-diff), for two things:
+Review what an agent changed, line by line, and send your comments back to it as one prompt. It works for two things:
 
 - **Code changes:** the uncommitted state of the project against `HEAD`, staged or not, with untracked files shown as added.
 - **Plans:** a file in `.alta/plans/`, split into Markdown blocks (headings, paragraphs, list items, tables, code).

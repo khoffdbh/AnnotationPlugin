@@ -2,14 +2,14 @@
 title: "Annotate plugin: review AI diffs and plans line by line, send the notes to the agent"
 status: done
 created: 2026-10-10
-summary: "A CodeAlta plugin modelled on Orca's Annotate AI Diff: comment on lines of a session's code diff or of a plan file, then send all open comments to an agent as one line-anchored prompt."
+summary: "A CodeAlta plugin to review AI changes line by line: comment on lines of a session's code diff or of a plan file, then send all open comments to an agent as one line-anchored prompt."
 ---
 
 # Annotate plugin
 
 ## Goal
 
-Recreate [Orca's Annotate AI Diff](https://www.onorca.dev/docs/review/annotate-ai-diff) as a CodeAlta Desktop plugin, for **code diffs** and **plans** (`.alta/plans/*.md`):
+Build a CodeAlta Desktop plugin to annotate AI changes line by line, for **code diffs** and **plans** (`.alta/plans/*.md`):
 
 1. Hover a line, click **+** (or press `c`), drag or `Shift`-click to cover a range, write a Markdown comment. `Enter`/`Ctrl+Enter` saves, `Shift+Enter` adds a new line, `Esc` cancels.
 2. Comments stay pinned to their lines. When the agent changes the file, they move with the code.
@@ -40,7 +40,7 @@ The agent is the reader: it gets the batch as a prompt. It can also list the com
 | Refresh | A **Refresh** button. Also automatic when the tab becomes visible and when the review's session finishes a turn (`OnAgentEventAsync` → `PublishAsync("review.changed")`). |
 | Send | Prompt below. Target menu (`PopoverNext` + `Menu`): this session, the other sessions of the project (`alta session list --project`), or **New session** (`alta session create` then `send`). Sent comments get status `sent`. |
 | Agent tools | `annotation_list` (open and sent comments of the calling session's project) and `annotation_reply` (`id`, `text`, `addressed: bool`). A reply shows in the comment's thread. Only the user resolves. |
-| Entry points | Command `/annotate` (session command, opens the diff review), `/annotate-plan` (pick a plan, open its review), a **SessionMenu** button "Annotate changes", and a status item showing the number of open comments (click opens the review). The shortcut is unbound by default, as in Orca. |
+| Entry points | Command `/annotate` (session command, opens the diff review), `/annotate-plan` (pick a plan, open its review), a **SessionMenu** button "Annotate changes", and a status item showing the number of open comments (click opens the review). The shortcut is unbound by default. |
 | Agent / test access | Canvas actions `add`, `list`, `send` and `resolve` with JSON schemas, plus `Describe`. Agents can use them through `alta canvas invoke`, and they make each step verifiable without the UI. |
 
 Prompt sent to the agent:
@@ -68,7 +68,7 @@ This step must come after the migration.
 
 - [x] **1. Scaffold and spike.** Run `git init` in `AnnotationPlugin/`, add a `.gitignore`, and create a work branch (`feat/annotate-plugin`). `alta plugin create annotate`. Move the source to `AnnotationPlugin/annotate/` and junction `~/.alta/plugins/annotate` to it, then confirm `alta plugin reload annotate` follows the junction. Add the `review` canvas with a hello `ui/review.js` and one RPC (`review.context`) that returns the session id and the resolved project path. Verify with `alta canvas open review`, `alta ui activate` and a snapshot. **Done when:** the tab shows the right project path for the session.
 - [x] **2. Read-only diff.** Add the git runner, the unified-diff parser and untracked files. Add RPC `review.get` (files, hunks, lines) and a stream `review.watch`. The script shows a file list on the left, a diff table on the right (old/new line numbers, +/- colours from `alta.theme`) and file names as `FileLink`s. **Done when:** a project with edits and a new file renders correctly. Test the parser on a sample diff through `alta canvas show`.
-- [x] **3. Annotations.** Add the record, the state store and RPCs `note.add/update/delete/resolve`. In the UI: gutter **+** on hover, drag or `Shift`-click for a range limited to one hunk, inline `TextArea` editor with the Orca keys, `c` on the focused line, and thread cards under the last line of the range with Edit / Delete / Resolve. Add the canvas actions `add`, `list` and `resolve`. **Done when:** comments survive `alta plugin reload` and a CodeAlta restart.
+- [x] **3. Annotations.** Add the record, the state store and RPCs `note.add/update/delete/resolve`. In the UI: gutter **+** on hover, drag or `Shift`-click for a range limited to one hunk, inline `TextArea` editor with the keys of the Goal (`Enter`/`Ctrl+Enter`, `Shift+Enter`, `Esc`), `c` on the focused line, and thread cards under the last line of the range with Edit / Delete / Resolve. Add the canvas actions `add`, `list` and `resolve`. **Done when:** comments survive `alta plugin reload` and a CodeAlta restart.
 - [x] **4. Re-anchoring.** Relocate comments by `Anchor` on refresh and mark the ones not found as `outdated`. Refresh automatically when the session goes idle. **Done when:** after inserting lines above a commented line, the comment moves with the line; after deleting the line, it shows as outdated.
 - [x] **5. Send to agent.** Add the prompt composer, the target menu (this session / other sessions / new session) and the queue-if-busy send. Mark comments as `sent`, and add a toolbar badge with the open count and the status item. Add the canvas action `send`. **Done when:** the target session receives the prompt above, and a second send includes only unresolved comments.
 - [x] **6. Agent tools.** Add `annotation_list` and `annotation_reply`, and show replies in threads (live through `review.changed`). **Done when:** an agent run started by **Send** replies to each id and the replies appear in the open tab.

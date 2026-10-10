@@ -37,9 +37,11 @@ const css = `
 .ann-note-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
 .ann-note-actions { margin-left: auto; display: flex; gap: 2px; }
 .ann-reply { border-left: 3px solid rgba(45,114,210,.5); padding: 2px 8px; margin-top: 6px; }
-.ann-table.ann-plan { font-family: inherit; font-size: 13px; }
-.ann-plan .ann-num { font-family: var(--bp-typography-family-mono, ui-monospace, SFMono-Regular, Consolas, monospace); font-size: 12px; padding-top: 4px; }
+.ann-table.ann-plan { font-family: inherit; font-size: 13px; table-layout: fixed; }
+.ann-plan .ann-num { width: 56px; font-family: var(--bp-typography-family-mono, ui-monospace, SFMono-Regular, Consolas, monospace); font-size: 12px; padding-top: 4px; }
 .ann-plan .ann-gutter { padding-top: 2px !important; }
+.ann-plan .ann-md { overflow-wrap: anywhere; }
+.ann-plan .ann-md table, .ann-plan .ann-md pre { display: block; max-width: 100%; overflow-x: auto; }
 .ann-block td { padding: 2px 6px; }
 .ann-block .ann-md h1, .ann-block .ann-md h2, .ann-block .ann-md h3, .ann-block .ann-md h4 { margin: 6px 0 2px; }
 .ann-block .ann-md > :last-child { margin-bottom: 0; }

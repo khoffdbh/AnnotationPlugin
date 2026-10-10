@@ -1,6 +1,6 @@
 ---
 title: "Annotate plugin: review AI diffs and plans line by line, send the notes to the agent"
-status: in-progress
+status: done
 created: 2026-10-10
 summary: "A CodeAlta plugin modelled on Orca's Annotate AI Diff: comment on lines of a session's code diff or of a plan file, then send all open comments to an agent as one line-anchored prompt."
 ---

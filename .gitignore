@@ -1,0 +1,14 @@
+# Build output of the plugin
+bin/
+obj/
+
+# Files CodeAlta generates in a plugin folder
+annotate/.gitignore
+annotate/Directory.Build.props
+annotate/Directory.Build.targets
+annotate/Directory.Packages.props
+annotate/global.json
+annotate/.codealta.plugins.lock
+
+# Data the plugin keeps per project (the comments of a review)
+.alta/plugin-data/

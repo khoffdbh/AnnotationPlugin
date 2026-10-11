@@ -5,23 +5,28 @@ using System.Text.RegularExpressions;
 
 // What a review shows, read and laid out by the plugin itself. The window's diff viewer and code editor are not open to plugins,
 // and an HTML fragment runs no script, so the review canvas draws the diff and the plan on its own: this file reads `git diff`
-// into files, hunks and numbered lines, and splits a plan into Markdown blocks with their line ranges, for ui/review.js to render.
+// into files, hunks and numbered lines, and splits a plan or another Markdown file into blocks with their line ranges, for
+// ui/review.js to render.
 
 // ---------------------------------------------------------------- Loading
 
 public static class ReviewSource
 {
-    // The content of a review: the uncommitted diff, or the plan named by a `plan:<relative path>` key.
+    // The content of a review: the uncommitted diff, the plan named by a `plan:<relative path>` key, or the Markdown file named by
+    // a `md:<relative path>` key. A plan and a Markdown file are read the same way, as Markdown blocks.
     public static async Task<ReviewContent> LoadAsync(string root, string review, CancellationToken cancellationToken)
     {
-        if (review.StartsWith(AnnotatePlugin.PlanPrefix, StringComparison.Ordinal))
+        if (AnnotatePlugin.DocumentOf(review) is { } relative)
         {
-            var relative = review[AnnotatePlugin.PlanPrefix.Length..];
+            var kind = AnnotatePlugin.KindOf(review);
+            var what = kind == "plan" ? "plan" : "file";
             var full = Path.GetFullPath(Path.Combine(root, relative));
-            if (!full.StartsWith(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase)) return ReviewContent.Failed("plan", relative, "The plan is outside the project.");
-            if (!File.Exists(full)) return ReviewContent.Failed("plan", relative, $"The plan `{relative}` does not exist.");
+            var inside = Path.GetRelativePath(Path.GetFullPath(root), full);
+            if (inside == ".." || inside.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) || Path.IsPathRooted(inside))
+                return ReviewContent.Failed(kind, relative, $"The {what} is outside the project.");
+            if (!File.Exists(full)) return ReviewContent.Failed(kind, relative, $"The {what} `{relative}` does not exist.");
             var lines = DiffSource.SplitLines(File.ReadAllText(full));
-            return new ReviewContent("plan", relative, null, [], PlanSplitter.Split(lines), (file, _) => file == relative ? DiffSource.SplitLines(File.ReadAllText(full)) : null);
+            return new ReviewContent(kind, relative, null, [], PlanSplitter.Split(lines), (file, _) => file == relative ? DiffSource.SplitLines(File.ReadAllText(full)) : null);
         }
 
         return await DiffSource.LoadAsync(root, cancellationToken);

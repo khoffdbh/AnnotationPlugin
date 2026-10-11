@@ -1,4 +1,4 @@
-// The review canvas: a diff (or a plan split into Markdown blocks) with line comments. Hover a line and click +, or press `c` on a
+// The review canvas: a diff (or a plan or another Markdown file, split into Markdown blocks) with line comments. Hover a line and click +, or press `c` on a
 // focused line, drag or Shift-click for a range, write a comment: Enter saves, Shift+Enter adds a line, Esc cancels. "Send to agent"
 // sends every unresolved comment as one prompt. The comments, the diff and the plan live in plugin.cs; this script reads them with
 // `alta.rpc` and hears `review.changed` when they change (a comment, an agent's reply, a turn that ended).
@@ -60,6 +60,7 @@ export default function Review() {
     const [selectedFile, setSelectedFile] = useState(null);
     const [sessions, setSessions] = useState([]);
     const [plans, setPlans] = useState([]);
+    const [documents, setDocuments] = useState([]);
     const [sending, setSending] = useState(false);
 
     const call = useCallback(async (name, input) => {
@@ -87,12 +88,13 @@ export default function Review() {
         catch { /* the next load shows the failure */ }
     }, [alta]);
 
-    // Read the review when the tab is shown (and the first time), and the sessions and plans for the menus.
+    // Read the review when the tab is shown (and the first time), and the sessions, plans and Markdown files for the menus.
     useEffect(() => { if (visible) void load(); }, [visible, load]);
     useEffect(() => {
         if (!visible) return;
         alta.rpc.invoke("review.sessions", {}, { signal: alta.closed }).then(setSessions, () => {});
         alta.rpc.invoke("review.plans", {}, { signal: alta.closed }).then(setPlans, () => {});
+        alta.rpc.invoke("review.documents", {}, { signal: alta.closed }).then(setDocuments, () => {});
     }, [visible, alta]);
 
     // A comment changed (here, in another tab, or an agent replied), or a session ended a turn and files may have changed.
@@ -150,6 +152,7 @@ export default function Review() {
         <//>`;
 
     const reviewValue = view.review;
+    const known = reviewValue === "diff" || plans.some(plan => "plan:" + plan.path === reviewValue) || documents.some(file => "md:" + file.path === reviewValue);
     return html`
         <div className="ann-root">
             <style>${css}</style>
@@ -158,8 +161,13 @@ export default function Review() {
                 <${HTMLSelect} minimal value=${reviewValue} aria-label="What to review"
                     onChange=${event => { if (event.target.value !== reviewValue) void call("review.open", { review: event.target.value }); }}>
                     <option value="diff">Uncommitted changes</option>
-                    ${plans.map(plan => html`<option key=${plan.path} value=${"plan:" + plan.path}>Plan: ${plan.title}</option>`)}
-                    ${reviewValue !== "diff" && !plans.some(plan => "plan:" + plan.path === reviewValue) && html`<option value=${reviewValue}>${reviewValue}</option>`}
+                    ${plans.length > 0 && html`<optgroup label="Plans">
+                        ${plans.map(plan => html`<option key=${plan.path} value=${"plan:" + plan.path}>${plan.title}</option>`)}
+                    </optgroup>`}
+                    ${documents.length > 0 && html`<optgroup label="Markdown files">
+                        ${documents.map(file => html`<option key=${file.path} value=${"md:" + file.path}>${file.path}</option>`)}
+                    </optgroup>`}
+                    ${!known && html`<option value=${reviewValue}>${reviewValue}</option>`}
                 <//>
                 <${Button} size="small" icon="refresh" loading=${loading} onClick=${load} title="Read the files again">Refresh<//>
                 <${Tag} minimal round intent=${unresolved.length > 0 ? "primary" : "none"} data-testid="open-count">${unresolved.length} open<//>
@@ -172,9 +180,9 @@ export default function Review() {
             ${problem && html`<${Callout} intent="warning" icon="warning-sign" style=${{ margin: 8 }}>${problem}<//>`}
             ${view.error
                 ? html`<div style=${{ padding: 16 }}><${Callout} intent="warning" title="Nothing to review">${view.error}<//></div>`
-                : view.kind === "plan"
-                    ? html`<${PlanReview} view=${view} notes=${notes} mutations=${mutations} />`
-                    : html`<${DiffReview} view=${view} notes=${notes} mutations=${mutations} selectedFile=${selectedFile} onSelect=${setSelectedFile} />`}
+                : view.kind === "diff"
+                    ? html`<${DiffReview} view=${view} notes=${notes} mutations=${mutations} selectedFile=${selectedFile} onSelect=${setSelectedFile} />`
+                    : html`<${PlanReview} view=${view} notes=${notes} mutations=${mutations} />`}
         </div>`;
 }
 
@@ -320,7 +328,7 @@ function DiffFileView({ file, notes, mutations }) {
         />`;
 }
 
-// ---------------------------------------------------------------- Plan
+// ---------------------------------------------------------------- Plan and Markdown file
 
 function PlanReview({ view, notes, mutations }) {
     const rows = useMemo(() => view.blocks.map((block, index) => ({ index, group: 0, block })), [view]);
@@ -350,7 +358,7 @@ function PlanReview({ view, notes, mutations }) {
         return { side: "new", startLine: rows[from].block.start, endLine: rows[to].block.end, from, to, last: to };
     };
 
-    if (rows.length === 0) return html`<${NonIdealState} icon="document" title="The plan is empty" />`;
+    if (rows.length === 0) return html`<${NonIdealState} icon="document" title=${view.kind === "plan" ? "The plan is empty" : "The file is empty"} />`;
     return html`
         <div className="ann-main">
             <div style=${{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>

@@ -2,14 +2,14 @@
 title: "Annotate plugin: review AI diffs and plans line by line, send the notes to the agent"
 status: done
 created: 2026-10-10
-summary: "A CodeAlta plugin to review AI changes line by line: comment on lines of a session's code diff or of a plan file, then send all open comments to an agent as one line-anchored prompt."
+summary: "A CodeAlta plugin to review AI changes line by line: comment on lines of a session's code diff, of a plan file or of another Markdown file, then send all open comments to an agent as one line-anchored prompt."
 ---
 
 # Annotate plugin
 
 ## Goal
 
-Build a CodeAlta Desktop plugin to annotate AI changes line by line, for **code diffs** and **plans** (`.alta/plans/*.md`):
+Build a CodeAlta Desktop plugin to annotate AI changes line by line, for **code diffs**, **plans** (`.alta/plans/*.md`) and, since step 9, **any other Markdown file** of the project:
 
 1. Hover a line, click **+** (or press `c`), drag or `Shift`-click to cover a range, write a Markdown comment. `Enter`/`Ctrl+Enter` saves, `Shift+Enter` adds a new line, `Esc` cancels.
 2. Comments stay pinned to their lines. When the agent changes the file, they move with the code.
@@ -20,7 +20,7 @@ The agent is the reader: it gets the batch as a prompt. It can also list the com
 
 ## Constraints found in the plugin API (CodeAlta 1.6.0)
 
-- The window's diff viewer and code editor are **not open to plugins**, and an HTML fragment runs no script. So the review is a **canvas** (a tab the plugin provides) drawn by a React module (`PluginScript.File("ui/review.js")`) that renders the diff itself with Blueprint. State lives in C#, and the script reaches it with `canvas.Rpc` (model: `samples/canvas-board`).
+- The window's diff viewer and code editor, including the editor's Markdown preview, are **not open to plugins** (no editor, file tab or preview contribution in the API), and an HTML fragment runs no script. So the review is a **canvas** (a tab the plugin provides) drawn by a React module (`PluginScript.File("ui/review.js")`) that renders the diff itself with Blueprint. State lives in C#, and the script reaches it with `canvas.Rpc` (model: `samples/canvas-board`).
 - `codealta` exports `Markdown`, `Code`, `FileLink` and `Icon`. There is no diff component, so lines are rendered as a table. Syntax highlighting is out of scope for v1.
 - `Services.Sessions.SendPromptAsync` targets only the *selected* session. To send to a specific session, use `Services.Alta.InvokeAsync(["session","send",id,"--stdin","--queue-if-busy"], stdin: prompt)`.
 - `PluginCanvasContext` has `ProjectId` but not the project's path. The path has to be resolved (Step 1 spike: `Services.Workspace.ProjectPaths` or `alta project list`). **Spike result:** `alta project show <projectId>` returns `projectPath`; the plugin caches it per project id. The plugin builds from `plugin.cs`, which pulls in `review-content.cs` with `#:include`. That file holds the diff and plan reading the canvas needs because it draws them itself. The script is `ui/review.js`.
@@ -31,16 +31,17 @@ The agent is the reader: it gets the batch as a prompt. It can also list the com
 | Part | Decision |
 |---|---|
 | Plugin id / location | `annotate`, a global plugin (`~/.alta/plugins/annotate/`), so it works in every project. Source of truth: `AnnotationPlugin/annotate/` in this repo, linked with a directory junction (fallback: develop in place and copy back). |
-| Canvas | `review`, `Scope = Session`. Key `diff` for the code review, `plan:<relative path>` for a plan. The session is the default target for **Send**. |
+| Canvas | `review`, `Scope = Session`. Key `diff` for the code review, `plan:<relative path>` for a plan, `md:<relative path>` for another Markdown file. The session is the default target for **Send**. |
 | Diff source | `git diff --no-color -U3 HEAD` plus untracked files (`git ls-files --others --exclude-standard`) shown as additions, run in the project path. Parsed into C# records `ReviewFile → Hunk → Line(oldNo, newNo, kind, text)`. Binary and very large files are listed but not rendered. |
 | Plan source | `.alta/plans/*.md` of the project. The file is split into Markdown **blocks** (heading, paragraph, list item, fenced code, table), each with its source line range. Each block is rendered with `Markdown`, and its gutter **+** comments on that line range. |
-| Annotation record | `Id, Kind(diff/plan), File, Side(new/old), StartLine, EndLine, Anchor(text of the lines), Body, Status(open/sent/resolved/outdated), Replies[{Author(user/agent), Body, At}], CreatedAt, SentAt` |
+| Markdown file source | Any `.md` / `.markdown` file of the project, read and split exactly like a plan. The list comes from `git ls-files --cached --others --exclude-standard` (plans left out, at most 500), or a walk that skips hidden and build folders outside git. |
+| Annotation record | `Id, Kind(diff/plan/doc), File, Side(new/old), StartLine, EndLine, Anchor(text of the lines), Body, Status(open/sent/resolved/outdated), Replies[{Author(user/agent), Body, At}], CreatedAt, SentAt` |
 | Storage | `Services.State` (Project scope), key `annotations`: reviews keyed by session id. |
 | Re-anchoring | On refresh, find `Anchor` in the new content, picking the match nearest the old line. If it isn't found, mark the comment `outdated`: it is listed in an "Outdated" section and can still be sent. |
 | Refresh | A **Refresh** button. Also automatic when the tab becomes visible and when the review's session finishes a turn (`OnAgentEventAsync` → `PublishAsync("review.changed")`). |
 | Send | Prompt below. Target menu (`PopoverNext` + `Menu`): this session, the other sessions of the project (`alta session list --project`), or **New session** (`alta session create` then `send`). Sent comments get status `sent`. |
 | Agent tools | `annotation_list` (open and sent comments of the calling session's project) and `annotation_reply` (`id`, `text`, `addressed: bool`). A reply shows in the comment's thread. Only the user resolves. |
-| Entry points | Command `/annotate` (session command, opens the diff review), `/annotate-plan` (pick a plan, open its review), a **SessionMenu** button "Annotate changes", and a status item showing the number of open comments (click opens the review). The shortcut is unbound by default. |
+| Entry points | Command `/annotate` (session command, opens the diff review), `/annotate-plan` (pick a plan, open its review), `/annotate-file` (pick a Markdown file, open its review), a **SessionMenu** button "Annotate changes", and a status item showing the number of open comments (click opens the review). The shortcut is unbound by default. |
 | Agent / test access | Canvas actions `add`, `list`, `send` and `resolve` with JSON schemas, plus `Describe`. Agents can use them through `alta canvas invoke`, and they make each step verifiable without the UI. |
 
 Prompt sent to the agent:
@@ -64,6 +65,8 @@ Don't swallow the exception here; let it surface.
 This step must come after the migration.
 ````
 
+A Markdown-file review starts with ``Review notes on `README.md`: 1 comment. Revise the file for each one; …`` and quotes each comment's lines with their section, as for a plan.
+
 ## Steps
 
 - [x] **1. Scaffold and spike.** Run `git init` in `AnnotationPlugin/`, add a `.gitignore`, and create a work branch (`feat/annotate-plugin`). `alta plugin create annotate`. Move the source to `AnnotationPlugin/annotate/` and junction `~/.alta/plugins/annotate` to it, then confirm `alta plugin reload annotate` follows the junction. Add the `review` canvas with a hello `ui/review.js` and one RPC (`review.context`) that returns the session id and the resolved project path. Verify with `alta canvas open review`, `alta ui activate` and a snapshot. **Done when:** the tab shows the right project path for the session.
@@ -74,6 +77,7 @@ This step must come after the migration.
 - [x] **6. Agent tools.** Add `annotation_list` and `annotation_reply`, and show replies in threads (live through `review.changed`). **Done when:** an agent run started by **Send** replies to each id and the replies appear in the open tab.
 - [x] **7. Plan annotation.** Add the plan picker (`/annotate-plan` and a selector in the canvas toolbar), the Markdown block splitter with line ranges, the block gutter, and `Kind = plan` comments that reuse steps 3–6. **Done when:** comments on a plan file are sent to its session, and the plan agent revises the file.
 - [x] **8. Entry points and docs.** Add `/annotate`, the SessionMenu button, the status item and `annotate/README.md` (install, usage, keys). Run one full manual pass in the window: edit → annotate → send → agent replies → resolve.
+- [x] **9. Markdown files (added 2026-10-11).** Since the editor's Markdown preview is closed to plugins, extend the review canvas instead: key `md:<relative path>` with kind `doc`, reusing the plan's block splitter, re-anchoring and threads. Add RPC `review.documents`, the `/annotate-file` command with a file picker, a **Markdown files** group in the toolbar selector (beside **Plans**), the tab title `Review · <file name>`, and neutral prompt wording ("Revise the file for each one"); **New session** stays in the default mode. Update the canvas and tool descriptions and the README. **Done when:** `README.md` opens from the selector, renders block by block, and a comment added with `c` is listed by `annotation_list` as kind `doc`. Verified in the window; **Send** for a `doc` review was not run (it would start a real agent run).
 
 ## Deviations found while implementing
 
@@ -83,6 +87,7 @@ This step must come after the migration.
 - **Send runs in the background.** `alta session send` returns only after the run it starts ends (a 26 s run took ~55 s), past the 30 s limit of a script call. The comments are marked `sent` at once, the prompt goes out through `Tasks.Run`, and a failed send restores their previous state and shows a notification.
 - **Plan picker.** The toolbar selector opens the chosen review (`review.open`) in its own tab, since the canvas key decides which review a tab shows. **New session** from a plan review starts the session with `--prompt-id plan`.
 - **Comments on files without changes.** After a commit or a revert, a file leaves the diff while its comments stay unresolved. The file list gets a **No longer changed** entry that lists them, so they can still be read and resolved.
+- **Path guard (step 9).** The check that a reviewed file is inside the project compared path prefixes, so `C:\proj-other\…` passed for a project at `C:\proj`. It now uses `Path.GetRelativePath` and rejects anything that leaves the project.
 - **Step 3 restart check.** Persistence was verified across `alta plugin reload` (in-memory state cleared, comments re-read from the file). A full CodeAlta restart cannot be run from inside the session; it reads the same file.
 
 ## Verification

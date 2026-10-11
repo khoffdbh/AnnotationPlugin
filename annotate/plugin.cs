@@ -10,15 +10,18 @@ using CodeAlta.Agent;
 using CodeAlta.Plugins.Abstractions;
 using XenoAtom.Logging;
 
-// Annotate: comment on lines of a session's uncommitted diff or of a plan file, then send all open comments to an agent as one
-// line-anchored prompt. The review is a canvas drawn by ui/review.js; the comments, the diff and the plan blocks live here and
-// reach the script through `canvas.Rpc`. Comments are kept per project in `<project>/.alta/plugin-data/annotate/annotations.json`.
-[Plugin("annotate", DisplayName = "Annotate", Description = "Comment on lines of a session's diff or plan, then send the comments to an agent.", Frontends = PluginFrontends.Desktop)]
+// Annotate: comment on lines of a session's uncommitted diff, of a plan file or of another Markdown file, then send all open
+// comments to an agent as one line-anchored prompt. The review is a canvas drawn by ui/review.js; the comments, the diff and the
+// Markdown blocks live here and reach the script through `canvas.Rpc`. Comments are kept per project in
+// `<project>/.alta/plugin-data/annotate/annotations.json`.
+[Plugin("annotate", DisplayName = "Annotate", Description = "Comment on lines of a session's diff, plan or Markdown files, then send the comments to an agent.", Frontends = PluginFrontends.Desktop)]
 public sealed class AnnotatePlugin : PluginBase
 {
     private const string CanvasId = "review";
     private const string DiffReview = "diff";
     internal const string PlanPrefix = "plan:";
+    internal const string DocumentPrefix = "md:";
+    private const int MaxDocuments = 500;
 
     private static readonly JsonSerializerOptions RpcJson = new(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
     private static readonly JsonSerializerOptions FileJson = new(JsonSerializerDefaults.Web) { WriteIndented = true };
@@ -37,7 +40,7 @@ public sealed class AnnotatePlugin : PluginBase
         yield return new PluginCanvasContribution
         {
             Id = CanvasId, Title = "Review", Icon = "message-square-text", Scope = PluginCanvasScope.Session,
-            Description = "Line comments on the uncommitted diff (key `diff`) or on a plan file (key `plan:<relative path>`) of a session, sent to an agent as one prompt.",
+            Description = "Line comments on the uncommitted diff (key `diff`), on a plan file (key `plan:<relative path>`) or on another Markdown file (key `md:<relative path>`) of a session, sent to an agent as one prompt.",
             Open = (canvas, _) => ValueTask.FromResult(Open(canvas)),
             Closed = canvas =>
             {
@@ -49,7 +52,7 @@ public sealed class AnnotatePlugin : PluginBase
             [
                 new PluginCanvasActionContribution
                 {
-                    Name = "add", Description = "Adds a comment on a line range. Input: file (project-relative; the plan path for a plan review), startLine, endLine, side (new or old; diff only), body.",
+                    Name = "add", Description = "Adds a comment on a line range. Input: file (project-relative; the reviewed file for a plan or Markdown review), startLine, endLine, side (new or old; diff only), body.",
                     InputSchema = """{"type":"object","properties":{"file":{"type":"string"},"startLine":{"type":"integer","minimum":1},"endLine":{"type":"integer","minimum":1},"side":{"type":"string","enum":["new","old"]},"body":{"type":"string"}},"required":["file","startLine","body"]}""",
                     Handler = async (canvas, input, ct) =>
                     {
@@ -102,6 +105,7 @@ public sealed class AnnotatePlugin : PluginBase
         rpc.Handle<SendRequest, SendResult>("review.send", async (request, ct) => await SendAsync(canvas, request?.Target, ct));
         rpc.Handle<Empty, IReadOnlyList<SessionItem>>("review.sessions", async (_, ct) => await SessionsAsync(canvas, ct));
         rpc.Handle<Empty, IReadOnlyList<PlanItem>>("review.plans", async (_, ct) => PlanFiles(await RootAsync(canvas, ct)));
+        rpc.Handle<Empty, IReadOnlyList<PlanItem>>("review.documents", async (_, ct) => await MarkdownFilesAsync(await RootAsync(canvas, ct), ct));
         rpc.Handle<OpenReview>("review.open", async (request, ct) =>
         {
             var review = request?.Review is { Length: > 0 } value ? value : DiffReview;
@@ -117,8 +121,24 @@ public sealed class AnnotatePlugin : PluginBase
 
     private static string ReviewOf(PluginCanvasContext canvas) => string.IsNullOrEmpty(canvas.Key) ? DiffReview : canvas.Key;
 
-    private static string TitleOf(string review)
-        => review.StartsWith(PlanPrefix, StringComparison.Ordinal) ? "Review · " + Path.GetFileNameWithoutExtension(review[PlanPrefix.Length..]) : "Review · changes";
+    private static string TitleOf(string review) => KindOf(review) switch
+    {
+        "plan" => "Review · " + Path.GetFileNameWithoutExtension(review[PlanPrefix.Length..]),
+        "doc" => "Review · " + Path.GetFileName(review[DocumentPrefix.Length..]),
+        _ => "Review · changes",
+    };
+
+    // `diff`, `plan` (a file of .alta/plans) or `doc` (another Markdown file of the project).
+    internal static string KindOf(string review)
+        => review.StartsWith(PlanPrefix, StringComparison.Ordinal) ? "plan" : review.StartsWith(DocumentPrefix, StringComparison.Ordinal) ? "doc" : "diff";
+
+    // The project-relative path of the file a plan or Markdown review is about; null for the diff.
+    internal static string? DocumentOf(string review) => KindOf(review) switch
+    {
+        "plan" => review[PlanPrefix.Length..],
+        "doc" => review[DocumentPrefix.Length..],
+        _ => null,
+    };
 
     private async ValueTask<string?> DescribeAsync(PluginCanvasContext canvas, CancellationToken cancellationToken)
     {
@@ -145,8 +165,6 @@ public sealed class AnnotatePlugin : PluginBase
         return new ReviewView(review, content.Kind, TitleOf(review), canvas.SessionId, root, content.PlanPath, content.Error, content.Files, content.Blocks, notes);
     }
 
-    private static string KindOf(string review) => review.StartsWith(PlanPrefix, StringComparison.Ordinal) ? "plan" : "diff";
-
     private static IReadOnlyList<PlanItem> PlanFiles(string root)
     {
         var folder = Path.Combine(root, ".alta", "plans");
@@ -168,6 +186,25 @@ public sealed class AnnotatePlugin : PluginBase
         return Path.GetFileNameWithoutExtension(path);
     }
 
+    // The Markdown files of the project, except the plans: the tracked and untracked ones git does not ignore, else every one
+    // outside hidden and build folders when the project is not a git repository.
+    private static async Task<IReadOnlyList<PlanItem>> MarkdownFilesAsync(string root, CancellationToken cancellationToken)
+    {
+        var listed = await DiffSource.GitAsync(root, cancellationToken, "-c", "core.quotepath=false", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.md", "*.markdown");
+        IEnumerable<string> paths = listed.Exit == 0
+            ? listed.Out.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            : Directory.EnumerateFiles(root, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true })
+                .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
+                .Where(path => path.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase))
+                .Where(path => !path.Split('/')[..^1].Any(folder => folder.StartsWith('.') || folder is "node_modules" or "bin" or "obj"));
+        return [.. paths
+            .Where(path => !path.StartsWith(".alta/plans/", StringComparison.OrdinalIgnoreCase) && File.Exists(Path.Combine(root, path)))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .Take(MaxDocuments)
+            .Select(path => new PlanItem(path, path))];
+    }
+
     // ---------------------------------------------------------------- Comments
 
     private async Task<IReadOnlyList<Note>> NotesAsync(PluginCanvasContext canvas, CancellationToken cancellationToken)
@@ -183,8 +220,9 @@ public sealed class AnnotatePlugin : PluginBase
         var body = request.Body?.Trim() ?? "";
         if (body.Length == 0) throw Invalid("A comment needs a text.");
         var file = (request.File ?? "").Replace('\\', '/').Trim();
-        var side = review.StartsWith(PlanPrefix, StringComparison.Ordinal) ? "new" : request.Side is "old" ? "old" : "new";
-        if (review.StartsWith(PlanPrefix, StringComparison.Ordinal) && file.Length == 0) file = review[PlanPrefix.Length..];
+        var document = DocumentOf(review);
+        var side = document is not null ? "new" : request.Side is "old" ? "old" : "new";
+        if (document is not null && file.Length == 0) file = document;
         var start = request.StartLine;
         var end = request.EndLine is { } last && last >= start ? last : start;
 
@@ -266,7 +304,7 @@ public sealed class AnnotatePlugin : PluginBase
         string sessionId;
         if (target is "new")
         {
-            var create = new List<string> { "session", "create", "--project", canvas.ProjectId ?? view.ProjectPath, "--title", view.Kind == "plan" ? "Plan review notes" : "Review notes", "--no-parent" };
+            var create = new List<string> { "session", "create", "--project", canvas.ProjectId ?? view.ProjectPath, "--title", view.Kind switch { "plan" => "Plan review notes", "doc" => "Review notes · " + Path.GetFileName(view.PlanPath), _ => "Review notes" }, "--no-parent" };
             if (view.Kind == "plan") create.AddRange(["--prompt-id", "plan"]);
             if (canvas.SessionId is { Length: > 0 } same) create.AddRange(["--same-model-as", same]);
             var result = await Services.Alta.InvokeAsync(create, cancellationToken: cancellationToken);
@@ -328,7 +366,7 @@ public sealed class AnnotatePlugin : PluginBase
             { "type": "object", "properties": { "all": { "type": "boolean", "description": "Include resolved comments too. Default false." } }, "additionalProperties": false }
             """).RootElement.Clone();
         yield return AgentTool.Create(new AgentToolDefinition(
-            new AgentToolSpec("annotation_list", "Lists the review comments the user left on lines of the diff or of a plan in this project (open and sent ones), with their ids, file, lines, text and replies. Use it to see what the user asked you to change.", listSchema),
+            new AgentToolSpec("annotation_list", "Lists the review comments the user left on lines of the diff, of a plan or of a Markdown file in this project (open and sent ones), with their ids, file, lines, text and replies. Use it to see what the user asked you to change.", listSchema),
             async (invocation, cancellationToken) =>
             {
                 var root = await SessionRootAsync(invocation.SessionId, cancellationToken);
@@ -428,6 +466,19 @@ public sealed class AnnotatePlugin : PluginBase
             await Services.Canvases.OpenAsync(CanvasId, new PluginCanvasOpenOptions { ProjectId = context.ProjectId, SessionId = context.SessionId, Key = PlanPrefix + chosen }, cancellationToken);
             return PluginCommandResult.Handled;
         }) with { Label = "Annotate: review a plan" };
+
+        yield return Command.Session("annotate-file", "Opens the review of a Markdown file of the project: comment on its lines, then send the comments to an agent.", async (context, cancellationToken) =>
+        {
+            var root = context.ProjectPath ?? await ProjectPathAsync(context.ProjectId, cancellationToken);
+            if (root is null) return PluginCommandResult.Message("This session has no project.");
+            var files = await MarkdownFilesAsync(root, cancellationToken);
+            if (files.Count == 0) return PluginCommandResult.Message("The project has no Markdown file.");
+            var chosen = await context.Ui.SelectAsync("Markdown file to review",
+                [.. files.Select(file => new PluginSelectItem<string> { Label = file.Path, Value = file.Path })], cancellationToken);
+            if (chosen is null) return PluginCommandResult.Cancelled;
+            await Services.Canvases.OpenAsync(CanvasId, new PluginCanvasOpenOptions { ProjectId = context.ProjectId, SessionId = context.SessionId, Key = DocumentPrefix + chosen }, cancellationToken);
+            return PluginCommandResult.Handled;
+        }) with { Label = "Annotate: review a Markdown file" };
     }
 
     public override IEnumerable<PluginUiContribution> GetUiContributions()
@@ -777,11 +828,14 @@ public static class PromptComposer
     public static string Compose(AnnotatePlugin.ReviewView view, IReadOnlyList<Note> notes)
     {
         var text = new StringBuilder();
-        var what = view.Kind == "plan" ? "your plan" : "your changes";
+        var what = view.Kind switch { "plan" => "your plan", "doc" => $"`{view.PlanPath}`", _ => "your changes" };
         text.Append($"Review notes on {what}: {(notes.Count == 1 ? "1 comment" : $"{notes.Count} comments")}. ");
-        text.Append(view.Kind == "plan"
-            ? "Revise the plan file for each one; when done, call `annotation_reply` with its id and what you changed.\n"
-            : "Address each one; when done, call `annotation_reply` with its id and what you changed.\n");
+        text.Append(view.Kind switch
+        {
+            "plan" => "Revise the plan file for each one",
+            "doc" => "Revise the file for each one",
+            _ => "Address each one",
+        }).Append("; when done, call `annotation_reply` with its id and what you changed.\n");
 
         foreach (var group in notes.GroupBy(note => note.File).OrderBy(group => group.Key, StringComparer.Ordinal))
         {
@@ -789,7 +843,7 @@ public static class PromptComposer
             foreach (var note in group.OrderBy(note => note.StartLine))
             {
                 var lines = AnnotatePlugin.Lines(note);
-                if (note.Kind == "plan")
+                if (note.Kind is "plan" or "doc")
                 {
                     var section = PlanSplitter.SectionOf(view.Blocks, note.StartLine);
                     text.Append($"\n### [{note.Id}] {lines}{(section is null ? "" : $" — \"{section}\"")}{Flags(note)}\n");

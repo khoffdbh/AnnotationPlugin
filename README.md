@@ -1,9 +1,10 @@
 # Annotate
 
-Review what an agent changed, line by line, and send your comments back to it as one prompt. It works for two things:
+Review what an agent changed, line by line, and send your comments back to it as one prompt. It works for three things:
 
 - **Code changes:** the uncommitted state of the project against `HEAD`, staged or not, with untracked files shown as added.
 - **Plans:** a file in `.alta/plans/`, split into Markdown blocks (headings, paragraphs, list items, tables, code).
+- **Markdown files:** any other `.md` or `.markdown` file of the project, such as a README or a design doc, shown like a plan.
 
 CodeAlta Desktop only: the review is a canvas tab.
 
@@ -25,13 +26,14 @@ Then run `alta plugin reload annotate`, or restart CodeAlta.
 |---|---|
 | `/annotate` in a session, or **Annotate: review the changes** in the palette | Opens the review of the uncommitted changes for that session. |
 | `/annotate-plan`, or **Annotate: review a plan** | Asks which plan of `.alta/plans/` to review, then opens it. |
+| `/annotate-file`, or **Annotate: review a Markdown file** | Asks which Markdown file of the project to review, then opens it. The list has the files git does not ignore, plans excepted, up to 500. |
 | **Annotate changes** in the menu of a session row | Opens the review of the changes for that session. Its badge counts the unresolved comments. |
 | **Review · N comments** in the status line of a session | Shown while the session has unresolved comments. A click opens the review. |
-| The selector at the top left of a review | Switches between the changes and the plans of the project, each in its own tab. |
+| The selector at the top left of a review | Switches between the changes, the plans and the Markdown files of the project, each in its own tab. |
 
 No shortcut is bound by default.
 
-A plan review shows the plan as Markdown, one block per row with its line numbers. A comment covers whole blocks:
+A plan review shows the plan as Markdown, one block per row with its line numbers. A comment covers whole blocks. A Markdown file is shown the same way:
 
 ![The review of a plan: headings and list items with their line numbers, and a comment under lines 15 to 16](docs/plan-review.png)
 
@@ -58,7 +60,7 @@ The review reads the files again when its tab is shown, when a session ends a tu
 
 - **This session:** the session the review belongs to.
 - **Another session** of the project.
-- **New session:** a new session of the project, in Plan mode for a plan review.
+- **New session:** a new session of the project, in Plan mode for a plan review and in the default mode otherwise.
 
 ![The Send to agent menu: this session, the other sessions of the project, and New session](docs/send-menu.png)
 
@@ -75,7 +77,7 @@ Only you resolve a comment.
 
 ![After the agent's turn: comment a1 is outdated because the agent rewrote its lines, and shows the agent's reply; a2 is resolved and folded into one line](docs/agent-reply.png)
 
-Agents can also drive a review without the window: `alta canvas show review --key diff` describes it, and `alta canvas invoke review add|list|send|resolve --key <key> --stdin` runs an action. The key is `diff`, or `plan:<path of the plan>`.
+Agents can also drive a review without the window: `alta canvas show review --key diff` describes it, and `alta canvas invoke review add|list|send|resolve --key <key> --stdin` runs an action. The key is `diff`, `plan:<path of the plan>`, or `md:<path of the Markdown file>`.
 
 ## Where the comments are kept
 

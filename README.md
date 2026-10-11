@@ -1,5 +1,13 @@
 # Annotate
 
+## Native integration 
+
+- [Spec for the native integration](docs/spec-annotations.md)
+- [Implementation plan for CodeAlta](docs/2026-10-11-native-annotations.md)
+- [Implementation plan for the plugin](.alta/plans/2026-10-11-annotate-handover.md)
+
+## Plugin spike
+
 Review what an agent changed, line by line, and send your comments back to it as one prompt. It works for three things:
 
 - **Code changes:** the uncommitted state of the project against `HEAD`, staged or not, with untracked files shown as added.
@@ -10,7 +18,7 @@ CodeAlta Desktop only: the review is a canvas tab.
 
 ![The review of the uncommitted changes: a diff with two comments under their lines, and a third comment being written under line 23](docs/review-diff.png)
 
-## Install
+### Install
 
 The plugin is a global plugin, so it works in every project. Its folder is `~/.alta/plugins/annotate/` (`plugin.cs`, `review-content.cs` and `ui/review.js`). To develop it from this repository, link the folder:
 
@@ -20,7 +28,7 @@ New-Item -ItemType Junction -Path "$HOME\.alta\plugins\annotate" -Target "<repo>
 
 Then run `alta plugin reload annotate`, or restart CodeAlta.
 
-## Open a review
+### Open a review
 
 | From | Does |
 |---|---|
@@ -37,7 +45,7 @@ A plan review shows the plan as Markdown, one block per row with its line number
 
 ![The review of a plan: headings and list items with their line numbers, and a comment under lines 15 to 16](docs/plan-review.png)
 
-## Comment
+### Comment
 
 | To | Do |
 |---|---|
@@ -54,7 +62,7 @@ Comments stay with their lines. When the file changes, a comment follows its tex
 
 The review reads the files again when its tab is shown, when a session ends a turn, and when you click **Refresh**.
 
-## Send to the agent
+### Send to the agent
 
 **Send to agent** puts every unresolved comment of the review into one prompt, file by file. Each comment comes with its id, its lines and the code or plan text it is about. You choose where the prompt goes:
 
@@ -66,7 +74,7 @@ The review reads the files again when its tab is shown, when a session ends a tu
 
 The prompt is queued when the session is busy. The comments become `sent` and stay visible. A comment you do not resolve is sent again next time, marked as sent before, with the agent's earlier replies.
 
-## What the agent can do
+### What the agent can do
 
 The plugin gives every session two tools:
 
@@ -79,11 +87,11 @@ Only you resolve a comment.
 
 Agents can also drive a review without the window: `alta canvas show review --key diff` describes it, and `alta canvas invoke review add|list|send|resolve --key <key> --stdin` runs an action. The key is `diff`, `plan:<path of the plan>`, or `md:<path of the Markdown file>`.
 
-## Where the comments are kept
+### Where the comments are kept
 
 In the project, in `.alta/plugin-data/annotate/annotations.json`. Add `.alta/plugin-data/` to the project's `.gitignore` unless you want to commit them.
 
-## Limits
+### Limits
 
 - No syntax highlighting in the diff.
 - The diff is always against `HEAD`. There is no base branch to choose yet.
